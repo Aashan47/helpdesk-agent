@@ -306,7 +306,8 @@ class Handler(BaseHTTPRequestHandler):
         data = (body if isinstance(body, (bytes, str)) else json.dumps(body))
         data = data.encode() if isinstance(data, str) else data
         self._headers(code, ctype, len(data), extra)
-        self.wfile.write(data)
+        if self.command != "HEAD":            # HEAD: same status and headers, no body
+            self.wfile.write(data)
 
     def _client(self) -> str:
         fwd = self.headers.get("X-Forwarded-For", "")
@@ -357,6 +358,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": f"internal error: {exc.__class__.__name__}"})
 
     def do_GET(self):  # noqa: N802
+        self._route("GET")
+
+    def do_HEAD(self):  # noqa: N802
+        """Uptime monitors (UptimeRobot's free HTTP check) probe with HEAD. Answer it like
+        GET without the body, except the agent stream: a HEAD must never start an agent
+        run or claim a ticket, so that path is refused."""
+        path = urlsplit(self.path).path.strip("/").split("/")
+        if path[0] == "inbox" and len(path) == 3 and path[2] == "stream":
+            self._send(405, {"error": "use GET to stream a ticket"}, extra={"Allow": "GET"})
+            return
         self._route("GET")
 
     def do_POST(self):  # noqa: N802
